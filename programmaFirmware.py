@@ -6,8 +6,8 @@ import fileinput
 import sys
 import threading
 import math
-import time
 import os
+from time import sleep
 import json
 import os.path
     
@@ -201,6 +201,7 @@ class programmaFirmware():
         return returnAddress
     def caricaFileHex(self,dispositivoBoot,idDispositivo,nomeFile):
         #questa funzione carica tutti i dati relativi ad un file hex
+        self.memoryRegion.clear()
         rawData=self.spedisciQuery(dispositivoBoot, idDispositivo,1000)
         if rawData is None:
             return
@@ -454,7 +455,7 @@ class programmaFirmware():
                     usb.util.ENDPOINT_IN)
         
                 try:
-                    rawDataAnswer=dispositivoBoot.read(ep,64,2000)
+                    rawDataAnswer=dispositivoBoot.read(ep,64,10000)
                 except:
                     return
                 
@@ -567,194 +568,202 @@ class programmaFirmware():
                                 
         return 1    
     
-    def gestisciProgrammazione(self,dispositivoBoot,nomeFile,idDispositivo):
+    def gestisciProgrammazione(self,dispositivoBoot,nomeFile,idDispositivo,ricaricaMem):
         # in questa funzione apriamo il file passato come parametro e scriviamo su dispositivo boot la programmazione
         #la prima cosa da fare è verificare che il file ci sia
-        rawData=self.spedisciQuery(dispositivoBoot, idDispositivo,1000)
-        if rawData is None:
-            return
+        if ricaricaMem:
+            self.memoryRegion.clear()
+            rawData=self.spedisciQuery(dispositivoBoot, idDispositivo,1000)
+            if rawData is None:
+                return
     
-        self.bytesPerPacket=rawData[1]
-        self.deviceFamily=rawData[2]
+            self.bytesPerPacket=rawData[1]
+            self.deviceFamily=rawData[2]
     
-        contaByte=3
-        tipo=0
-        indirizzo=0
-        dimensione=0
-        appoggio=0;
-        appoggio1=0
-        finito=False
-        j=0
-        self.memoryRegionsDetected=0
-        tmp=0
+            contaByte=3
+            tipo=0
+            indirizzo=0
+            dimensione=0
+            appoggio=0;
+            appoggio1=0
+            finito=False
+            j=0
+            self.memoryRegionsDetected=0
+            tmp=0
     
-        while finito==False:
-            tipo=rawData[contaByte]
-            if tipo==255:
-                #terminata la cosa devo uscire dal ciclo for
-                finito=True
-                break
+            while finito==False:
+                tipo=rawData[contaByte]
+                if tipo==255:
+                    #terminata la cosa devo uscire dal ciclo for
+                    finito=True
+                    break
             
-            #calcolo l'indirizzo della regione
-            contaByte+=1
-            appoggio=rawData[contaByte]
-            contaByte+=1
-            tmp=rawData[contaByte]
-            tmp=tmp<<8
-            appoggio+=tmp
-            contaByte+=1
-            appoggio1=rawData[contaByte]
-            contaByte+=1
-            tmp=rawData[contaByte]
-            tmp=tmp<<8
-            appoggio1+=tmp
-            contaByte+=1
-            appoggio1=appoggio1<<16
-            indirizzo=appoggio+appoggio1
+                #calcolo l'indirizzo della regione
+                contaByte+=1
+                appoggio=rawData[contaByte]
+                contaByte+=1
+                tmp=rawData[contaByte]
+                tmp=tmp<<8
+                appoggio+=tmp
+                contaByte+=1
+                appoggio1=rawData[contaByte]
+                contaByte+=1
+                tmp=rawData[contaByte]
+                tmp=tmp<<8
+                appoggio1+=tmp
+                contaByte+=1
+                appoggio1=appoggio1<<16
+                indirizzo=appoggio+appoggio1
             
-            #calcolo la dimensione della regione di memoria
-            appoggio=rawData[contaByte]
-            contaByte+=1
-            tmp=rawData[contaByte]
-            tmp=tmp<<8
-            appoggio+=tmp
-            contaByte+=1
-            appoggio1=rawData[contaByte]
-            contaByte+=1
-            tmp=rawData[contaByte]
-            tmp=tmp<<8
-            appoggio1+=tmp
-            contaByte+=1
-            appoggio1=appoggio1<<16
-            dimensione=appoggio+appoggio1
-            self.memoryRegion.append(MEMORYREGION(tipo,indirizzo,dimensione))
-            self.memoryRegionsDetected+=1
-            j+=1
-            if j>=6:
-                finito=True
+                #calcolo la dimensione della regione di memoria
+                appoggio=rawData[contaByte]
+                contaByte+=1
+                tmp=rawData[contaByte]
+                tmp=tmp<<8
+                appoggio+=tmp
+                contaByte+=1
+                appoggio1=rawData[contaByte]
+                contaByte+=1
+                tmp=rawData[contaByte]
+                tmp=tmp<<8
+                appoggio1+=tmp
+                contaByte+=1
+                appoggio1=appoggio1<<16
+                dimensione=appoggio+appoggio1
+                self.memoryRegion.append(MEMORYREGION(tipo,indirizzo,dimensione))
+                self.memoryRegionsDetected+=1
+                j+=1
+                if j>=6:
+                    finito=True
     
-        #definisco il numero di bytes per address sulla base del tipo di micro
-        self.bytesPerAddress=0
-        if self.deviceFamily==DEVICE_FAMILY_PIC18:
-            self.bytesPerAddress=1
-        elif self.deviceFamily==DEVICE_FAMILY_PIC24:
-            self.bytesPerAddress=2
-        elif self.deviceFamily==DEVICE_FAMILY_PIC32:
-            self.bytesPerAddress=3
+            #definisco il numero di bytes per address sulla base del tipo di micro
+            self.bytesPerAddress=0
+            if self.deviceFamily==DEVICE_FAMILY_PIC18:
+                self.bytesPerAddress=1
+            elif self.deviceFamily==DEVICE_FAMILY_PIC24:
+                self.bytesPerAddress=2
+            elif self.deviceFamily==DEVICE_FAMILY_PIC32:
+                self.bytesPerAddress=3
     
-        #for i in range(0,(self.memoryRegion[0].getSize()+1)*self.bytesPerAddress):
-        self.pData[0]=bytearray((self.memoryRegion[0].getSize()+1)*self.bytesPerAddress)
+            #for i in range(0,(self.memoryRegion[0].getSize()+1)*self.bytesPerAddress):
+            self.pData[0]=bytearray((self.memoryRegion[0].getSize()+1)*self.bytesPerAddress)
     
-        if self.memoryRegionsDetected>1:
-            #for i in range(0,(self.memoryRegion[1].getSize()+1)*self.bytesPerAddress):
-            self.pData[1]=bytearray((self.memoryRegion[1].getSize()+1)*self.bytesPerAddress)
-            if self.memoryRegionsDetected>2:
-                #for i in range(0,(self.memoryRegion[2].getSize()+1)*self.bytesPerAddress):
-                self.pData[2]=bytearray((self.memoryRegion[2].getSize()+1)*self.bytesPerAddress)
-                if self.memoryRegionsDetected>3:
-                    #for i in range(0,(self.memoryRegion[3].getSize()+1)*self.bytesPerAddress):
-                    self.pData[3]=bytearray((self.memoryRegion[3].getSize()+1)*self.bytesPerAddress)
-                    if self.memoryRegionsDetected>4:
-                        #for i in range(0,(self.memoryRegion[4].getSize()+1)*self.bytesPerAddress):
-                        self.pData[4]=bytearray((self.memoryRegion[4].getSize()+1)*self.bytesPerAddress)
-                        if self.memoryRegionsDetected>5:
-                            #for i in range(0,(self.memoryRegion[5].getSize()+1)*self.bytesPerAddress):
+            if self.memoryRegionsDetected>1:
+                #for i in range(0,(self.memoryRegion[1].getSize()+1)*self.bytesPerAddress):
+                self.pData[1]=bytearray((self.memoryRegion[1].getSize()+1)*self.bytesPerAddress)
+                if self.memoryRegionsDetected>2:
+                    #for i in range(0,(self.memoryRegion[2].getSize()+1)*self.bytesPerAddress):
+                    self.pData[2]=bytearray((self.memoryRegion[2].getSize()+1)*self.bytesPerAddress)
+                    if self.memoryRegionsDetected>3:
+                        #for i in range(0,(self.memoryRegion[3].getSize()+1)*self.bytesPerAddress):
+                        self.pData[3]=bytearray((self.memoryRegion[3].getSize()+1)*self.bytesPerAddress)
+                        if self.memoryRegionsDetected>4:
+                            #for i in range(0,(self.memoryRegion[4].getSize()+1)*self.bytesPerAddress):
                             self.pData[4]=bytearray((self.memoryRegion[4].getSize()+1)*self.bytesPerAddress)
+                            if self.memoryRegionsDetected>5:
+                                #for i in range(0,(self.memoryRegion[5].getSize()+1)*self.bytesPerAddress):
+                                self.pData[4]=bytearray((self.memoryRegion[4].getSize()+1)*self.bytesPerAddress)
+        
+        else:
+            rawData=self.spedisciQuery(dispositivoBoot, idDispositivo,1000)
+            if rawData is None:
+                return
+        
+        if ricaricaMem:
+            #adesso ho le dimensioni delle regioni di memoria
+            fileHex=open(nomeFile,'r')
+            hexFileEOF=False
     
-        #adesso ho le dimensioni delle regioni di memoria
-        fileHex=open(nomeFile,'r')
-        hexFileEOF=False
-    
-        rigaFile=fileHex.readline()
-        while len(rigaFile)>0 and hexFileEOF==False:
-            #devo scorrere tutto il file 
-            rigaFile=rigaFile.strip()
-            if len(rigaFile)>0:
-                if rigaFile[0]!=':':
-                    #non comincia nel modo giusto
-                    fileHex.close()
-                    return
+            rigaFile=fileHex.readline()
+            while len(rigaFile)>0 and hexFileEOF==False:
+                #devo scorrere tutto il file 
+                rigaFile=rigaFile.strip()
+                if len(rigaFile)>0:
+                    if rigaFile[0]!=':':
+                        #non comincia nel modo giusto
+                        fileHex.close()
+                        return
             
-                rigaFile=rigaFile.strip(':')
-                recordLength=self.StringToHex(rigaFile[0:2])
-                temp=rigaFile[2:6]
-                addressField=self.StringToHex(rigaFile[2:6])
-                recordType=self.StringToHex(rigaFile[6:8])
-                dataPayload=rigaFile[8:8+recordLength*2]
-                checksum=self.StringToHex(rigaFile[8+recordLength*2:10+recordLength*2])
+                    rigaFile=rigaFile.strip(':')
+                    recordLength=self.StringToHex(rigaFile[0:2])
+                    temp=rigaFile[2:6]
+                    addressField=self.StringToHex(rigaFile[2:6])
+                    recordType=self.StringToHex(rigaFile[6:8])
+                    dataPayload=rigaFile[8:8+recordLength*2]
+                    checksum=self.StringToHex(rigaFile[8+recordLength*2:10+recordLength*2])
             
-                checksumCalculated=0
-                for j in range(0,recordLength+4):
-                    checksumCalculated+=self.StringToHex(rigaFile[j*2:(j*2)+2])
+                    checksumCalculated=0
+                    for j in range(0,recordLength+4):
+                        checksumCalculated+=self.StringToHex(rigaFile[j*2:(j*2)+2])
             
-                checksumCalculated=~checksumCalculated
-                checksumCalculated+=1
-                checksumCalculated=checksumCalculated & 0x000000FF
+                    checksumCalculated=~checksumCalculated
+                    checksumCalculated+=1
+                    checksumCalculated=checksumCalculated & 0x000000FF
             
-                if (checksumCalculated & 0x000000FF) !=checksum:
-                    fileHex.close()
-                    return
+                    if (checksumCalculated & 0x000000FF) !=checksum:
+                        fileHex.close()
+                        return
             
-                #andiamo avanti
-                if recordType==HEX_FILE_EXTENDED_LINEAR_ADDRESS:
-                    self.extendedAddress=self.StringToHex(dataPayload)
-                elif recordType == HEX_FILE_EOF:
-                    hexFileEOF=True
-                elif recordType==HEX_FILE_DATA:
-                    savedData=False
-                    foundMemoryRegion=False
-                    totalAddress=(self.extendedAddress << 16)+addressField
-                    contaRegioni=0
+                    #andiamo avanti
+                    if recordType==HEX_FILE_EXTENDED_LINEAR_ADDRESS:
+                        self.extendedAddress=self.StringToHex(dataPayload)
+                    elif recordType == HEX_FILE_EOF:
+                        hexFileEOF=True
+                    elif recordType==HEX_FILE_DATA:
+                        savedData=False
+                        foundMemoryRegion=False
+                        totalAddress=(self.extendedAddress << 16)+addressField
+                        contaRegioni=0
                 
-                    for j in range(0,self.memoryRegionsDetected):
-                        if (totalAddress>=self.memoryRegion[j].getAddress()*self.bytesPerAddress) and (totalAddress<(self.memoryRegion[j].getAddress()+self.memoryRegion[j].getSize())*self.bytesPerAddress):
-                            for i in range(0,recordLength):
-                                dato=self.StringToHex(dataPayload[i*2:i*2+2])
-                                p=totalAddress-(self.memoryRegion[j].getAddress()*self.bytesPerAddress) + i
-                                limit=(self.memoryRegion[j].getSize()+1)*self.bytesPerAddress
-                                if (p>=limit):
-                                    break
+                        for j in range(0,self.memoryRegionsDetected):
+                            if (totalAddress>=self.memoryRegion[j].getAddress()*self.bytesPerAddress) and (totalAddress<(self.memoryRegion[j].getAddress()+self.memoryRegion[j].getSize())*self.bytesPerAddress):
+                                for i in range(0,recordLength):
+                                    dato=self.StringToHex(dataPayload[i*2:i*2+2])
+                                    p=totalAddress-(self.memoryRegion[j].getAddress()*self.bytesPerAddress) + i
+                                    limit=(self.memoryRegion[j].getSize()+1)*self.bytesPerAddress
+                                    if (p>=limit):
+                                        break
                             
-                                if self.bytesPerAddress==2:
-                                    if (totalAddress+i)<0x06:
-                                        if (totalAddress+i)==0:
-                                            self.pData[j][0]=0
-                                        elif (totalAddress+i)==1 or (totalAddress+i)==2:
-                                            self.pData[j][i]=4
-                                        elif (totalAddress+i)==3 or (totalAddress+i)==4 or (totalAddress+i)==5:
-                                            self.pData[j][i]=0
-                                        else:
-                                            self.pData[j][0]=dato
+                                    if self.bytesPerAddress==2:
+                                        if (totalAddress+i)<0x06:
+                                            if (totalAddress+i)==0:
+                                                self.pData[j][0]=0
+                                            elif (totalAddress+i)==1 or (totalAddress+i)==2:
+                                                self.pData[j][i]=4
+                                            elif (totalAddress+i)==3 or (totalAddress+i)==4 or (totalAddress+i)==5:
+                                                self.pData[j][i]=0
+                                            else:
+                                                self.pData[j][0]=dato
                                     
-                                        for k in range(0,self.memoryRegionsDetected):
-                                            if self.memoryRegion[k].getAddress()==0x1400:
-                                                self.pData[k][totalAddress+i]=dato
-                                    elif (totalAddress+i)==(0x1400*2):
-                                        l=0
-                                    elif (totalAddress+i)==(0x1400*2)+1:
-                                        l=1
-                                    elif (totalAddress+i)==(0x1400*2)+2:
-                                        l=2
-                                    elif (totalAddress+i)==(0x1400*2)+3:
-                                        l=3
-                                    elif (totalAddress+i)==(0x1400*2)+4:
-                                        l=4
-                                    elif (totalAddress+i)==(0x1400*2)+5:
-                                        l=5
+                                            for k in range(0,self.memoryRegionsDetected):
+                                                if self.memoryRegion[k].getAddress()==0x1400:
+                                                    self.pData[k][totalAddress+i]=dato
+                                        elif (totalAddress+i)==(0x1400*2):
+                                            l=0
+                                        elif (totalAddress+i)==(0x1400*2)+1:
+                                            l=1
+                                        elif (totalAddress+i)==(0x1400*2)+2:
+                                            l=2
+                                        elif (totalAddress+i)==(0x1400*2)+3:
+                                            l=3
+                                        elif (totalAddress+i)==(0x1400*2)+4:
+                                            l=4
+                                        elif (totalAddress+i)==(0x1400*2)+5:
+                                            l=5
+                                        else:
+                                            self.pData[j][totalAddress-(self.memoryRegion[j].getAddress()*self.bytesPerAddress) + i]=dato
+                            
                                     else:
                                         self.pData[j][totalAddress-(self.memoryRegion[j].getAddress()*self.bytesPerAddress) + i]=dato
                             
-                                else:
-                                    self.pData[j][totalAddress-(self.memoryRegion[j].getAddress()*self.bytesPerAddress) + i]=dato
-                            
-                            break;
+                                break;
                         
-                else:
-                    break;
+                    else:
+                        break;
             
-            rigaFile=fileHex.readline()                        
+                rigaFile=fileHex.readline()                        
     
-        fileHex.close()
+            fileHex.close()
                                     
         #ho caricato il file hex
         #adesso devo programmare lo slave
@@ -1168,6 +1177,7 @@ class leggiOperazioni():
 
 def funzioneMain():
     fileName=".//fileOperazioni.json"
+    nomeFileProgram=""
     if os.path.isfile(fileName):
         sampleDevice=programmaFirmware()
         fileJSON=leggiOperazioni()
@@ -1188,80 +1198,93 @@ def funzioneMain():
             i=i+1
             if datiJSON[chiave]["operazione"]=="erase":
                 #devo eseguire un erase su il dispositivo
-                print("Process - {0} iniziata".format(chiave))
+                print("Process - {0} iniziata\n".format(chiave),flush=True)
                 rit=sampleDevice.spedisciErase(bootLoader,datiJSON[chiave]["indSeriale"])
                 if rit is None:
-                    print("Error - processo erase fallito")
+                    print("Error - processo erase fallito\n")
                     break
                 else:
-                    print("Process - Operazione {0} terminata con successo".format(datiJSON[chiave]["operazione"]))
+                    print("Process - Operazione {0} terminata con successo\n".format(datiJSON[chiave]["operazione"]),flush=True)
             elif datiJSON[chiave]["operazione"]=="program":
                 #devo eseguire programmazione con verifica
-                print("Process - {0} iniziata".format(chiave))
-                print("Process - Operazione erase iniziata")
+                print("Process - {0} iniziata\n".format(chiave),flush=True)
+                print("Process - Operazione erase attivata\n",flush=True)
                 rit=sampleDevice.spedisciErase(bootLoader, datiJSON[chiave]["indSeriale"])
     
                 if rit is None:
                     #c'è stato un errore nell'erase
-                    print("Error - operazione erase fallita")
+                    print("Error - operazione erase fallita\n",flush=True)
                     break
                 
-                print("Process - Operazione program iniziata")
-                rit=sampleDevice.gestisciProgrammazione(bootLoader, datiJSON[chiave]["nomeFile"], datiJSON[chiave]["indSeriale"])
+                ricaricaMem=False
+                if nomeFileProgram!=datiJSON[chiave]["nomeFile"]:
+                    ricaricaMem=True
+                nomeFileProgram=datiJSON[chiave]["nomeFile"]
+                print("Process - Operazione program attivata\n",flush=True)
+                rit=sampleDevice.gestisciProgrammazione(bootLoader, datiJSON[chiave]["nomeFile"], datiJSON[chiave]["indSeriale"],ricaricaMem)
                 if rit is None:
-                    print("Error - processo program fallito")
+                    print("Error - processo program fallito\n",flush=True)
                     break
                 else:
                     #adesso devo verificare la programmazione
-                    print("Process - operazione verify iniziata")
+                    print("Process - operazione verify attivata\n",flush=True)
                     ret=sampleDevice.verificaProgram(bootLoader, datiJSON[chiave]["indSeriale"])    
                     if ret is None:
-                        print("Error - processo verify fallito")
+                        print("Error - processo verify fallito\n",flush=True)
                         break
                     else:
-                        print("Process - Operazione {0} terminta con successo".format(datiJSON[chiave]["operazione"]))
+                        print("Process - Operazione {0} terminata con successo\n".format(datiJSON[chiave]["operazione"]),flush=True)
             elif datiJSON[chiave]["operazione"]=="read":
                 #devo leggere il contenuto e salvarlo in un file binario
-                print("Process - {0} iniziata".format(chiave))
-                print("Process - lettura memoria iniziata")
+                print("Process - {0} iniziata\n".format(chiave),flush=True)
+                print("Process - lettura memoria attivata\n",flush=True)
+                sleep(0.01)
+                
                 ret=sampleDevice.letturaHex(bootLoader, datiJSON[chiave]["indSeriale"], ".//temp.bin")
 #                ret=sampleDevice.letturaHex(bootLoader, datiJSON[chiave]["indSeriale"], datiJSON[chiave]["nomeFile"])
                 ret=sampleDevice.convertBinaryToHex(datiJSON[chiave]["nomeFile"])
                 if ret is None:
-                    print("Error - lettura memoria fallita")
+                    print("Error - lettura memoria fallita\n")
                     break
                 #adesso creo il file hex
 #                convertBinaryToHex(".//temp.bin",datiJSON[chiave]["nomeFile"])
-                print("Process - lettura memoria terminata con successo")
+                print("Process - lettura memoria terminata con successo\n",flush=True)
             elif datiJSON[chiave]["operazione"]=="verify":
                 #devo verificare il contenuto della memoria rispetto al file passato come parametro
-                print("Process - {0} iniziata".format(chiave))
-                print("Process - Operazione di caricamento file hex iniziata")
+                print("Process - {0} iniziata\n".format(chiave),flush=True)
+                print("Process - Operazione di caricamento file hex attivata\n",flush=True)
                 ret=sampleDevice.caricaFileHex(bootLoader, datiJSON[chiave]["indSeriale"], datiJSON[chiave]["nomeFile"])
                 if ret is None:
-                    print("Error - Problema nel caricamento file hex")
+                    print("Error - Problema nel caricamento file hex\n",flush=True)
                     break
-                print("Process - Operazione di verifica iniziata")
+                print("Process - Operazione di verifica attivata\n",flush=True)
                 ret=sampleDevice.verificaProgram(bootLoader,datiJSON[chiave]["indSeriale"])
                 if ret is None:
-                    print("Error - Problema nella verifica file")
+                    print("Error - Problema nella verifica file\n",flush=True)
                     break
-                print("Process - Operazione di verifica terminata con successo")
+                print("Process - Operazione di verifica terminata con successo\n",flush=True)
             elif datiJSON[chiave]["operazione"]=="reset":
-                print("Process - {0} iniziata".format(chiave))
-                print("Process - Operazione di reset iniziata")
+                print("Process - {0} iniziata\n".format(chiave),flush=True)
+                print("Process - Operazione di reset attivata\n",flush=True)
                 ret=sampleDevice.resetDevice(bootLoader, datiJSON[chiave]["indSeriale"])
                 if ret is None:
-                    print("Error - Problema nel comando di reset")
+                    print("Error - Problema nel comando di reset\n",flush=True)
                     break
-                print("Process - operazione di reset terminata con successo")
+                print("Process - operazione di reset terminata con successo\n",flush=True)
+            elif datiJSON[chiave]["operazione"]=="query":
+                print("Process - {0} iniziata\n".format(chiave),flush=True)
+                print("Process - Operazione di query attivata\n",flush=True)
+                ret=sampleDevice.spedisciQuery(bootLoader, datiJSON[chiave]["indSeriale"], 1000)
+                if ret is None:
+                    print("Error - Problema nel comando di query\n",flush=True)
+                print("Process - operazione di query terminata con successo\n",flush=True)
                 
             else:
-                print("Error - operazione non riconosciuta")
+                print("Error - operazione non riconosciuta\n",flush=True)
                 break
                 
     else:
-        print("Error - il file JSON non esiste!")
+        print("Error - il file JSON non esiste!\n",flush=True)
     
 if __name__ == '__main__':
     funzioneMain()        
